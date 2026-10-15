@@ -511,17 +511,32 @@ const TTS={voices:[],ready:false,
   secondVoice(){const a=this.mainVoice();const b=this.byName(S.set.vB)||this.male().find(x=>x!==a)||this.female().find(x=>x!==a)||this.english().find(x=>x!==a);return b||a},
   pickVoices(){return this.english()},
   fix(t){const s=t.trim();if(s==='I')return 'eye';if(s==='a')return 'uh';return t.replace(/\bI\b(?=[.!?,]?$)/,'eye')},
+  unlocked:false,warned:false,_u:null,
+  unlock(){if(this.unlocked||!('speechSynthesis' in window))return;this.unlocked=true;
+    try{this.load();const u=new SpeechSynthesisUtterance(' ');u.volume=0;u.lang='en-US';speechSynthesis.speak(u)}catch(e){}},
+  _speak(text,opt,res){
+    const u=new SpeechSynthesisUtterance(this.fix(text));this._u=u;
+    this.load();const v=opt.voice===1?this.secondVoice():this.mainVoice();
+    if(v){u.voice=v;u.lang=v.lang}else u.lang=S.set.accent==='uk'?'en-GB':'en-US';
+    const base=S.set.rate==='s'?0.8:0.92;u.rate=opt.slow?0.62:base;u.pitch=1;u.volume=1;
+    let done=false,started=false;const fin=()=>{if(!done){done=true;res()}};
+    u.onstart=()=>{started=true};u.onend=fin;
+    u.onerror=e=>{if(e&&(e.error==='not-allowed'||e.error==='audio-busy')&&!this.warned){this.warned=true;toast('اضغط زر الصوت 🔊 مرة وحدة عشان يشتغل الصوت')}fin()};
+    setTimeout(()=>{if(!started&&!done&&!this.warned&&!opt.quiet){this.warned=true;toast('ما طلع صوت؟ تأكد إن الجوال مو على الصامت وإن الصوت مرفوع')}},2500);
+    setTimeout(fin,Math.max(4000,text.length*180));
+    try{speechSynthesis.resume()}catch(e){}
+    speechSynthesis.speak(u)},
   say(text,opt={}){
     if(!('speechSynthesis' in window)){toast('المتصفح ما يدعم النطق الصوتي');return Promise.resolve()}
-    speechSynthesis.cancel();
-    return new Promise(res=>{const u=new SpeechSynthesisUtterance(this.fix(text));
-      const v=opt.voice===1?this.secondVoice():this.mainVoice();if(v)u.voice=v;u.lang=v?v.lang:(S.set.accent==='uk'?'en-GB':'en-US');
-      const base=S.set.rate==='s'?0.8:0.92;u.rate=opt.slow?0.62:base;u.pitch=1;u.volume=1;
-      let done=false;const fin=()=>{if(!done){done=true;res()}};u.onend=u.onerror=fin;
-      setTimeout(fin,Math.max(4000,text.length*180));speechSynthesis.speak(u)})},
-  stop(){try{speechSynthesis.cancel()}catch(e){}}
+    this.unlocked=true;
+    return new Promise(res=>{
+      // إذا فيه كلام شغّال نوقفه وننتظر شوي، لأن بعض المتصفحات تبلع الجملة الجديدة إذا جات مباشرة بعد الإيقاف
+      if(speechSynthesis.speaking||speechSynthesis.pending){speechSynthesis.cancel();setTimeout(()=>this._speak(text,opt,res),120)}
+      else this._speak(text,opt,res)})},
+  stop(){try{if(speechSynthesis.speaking||speechSynthesis.pending)speechSynthesis.cancel()}catch(e){}}
 };
-if('speechSynthesis' in window){TTS.load();speechSynthesis.onvoiceschanged=()=>TTS.load()}
+if('speechSynthesis' in window){TTS.load();speechSynthesis.onvoiceschanged=()=>TTS.load();
+  ['pointerdown','touchend','keydown'].forEach(ev=>document.addEventListener(ev,()=>TTS.unlock(),{capture:true,passive:true}))}
 const speakText=s=>s.replace(/^(A|B|Doctor|Patient):\s*/,'');
 document.addEventListener('click',e=>{const b=e.target.closest('[data-say]');if(b){e.stopPropagation();TTS.say(b.dataset.say,{slow:b.dataset.slow==='1'})}},true);
 
