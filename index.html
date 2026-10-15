@@ -18,6 +18,7 @@
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <script src="config.js"></script>
+<script>window.DARB_AUDIO=true</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800;900&display=swap">
@@ -526,17 +527,44 @@ const TTS={voices:[],ready:false,
     setTimeout(fin,Math.max(4000,text.length*180));
     try{speechSynthesis.resume()}catch(e){}
     speechSynthesis.speak(u)},
+  /* ملفات صوت مسجلة مسبقاً: تشتغل على كل الأجهزة حتى لو الجهاز ما فيه صوت إنجليزي */
+  el:null,_res:null,
+  fnv(t){let h=0x811c9dc5;for(const x of new TextEncoder().encode(t)){h^=x;h=Math.imul(h,0x01000193)>>>0}return h},
+  aurl(t,v){t=String(t).replace(/\s*\(.*?\)\s*$/,'').trim();return 'audio/'+(v===1?'m':'f')+this.fnv(t).toString(36)+'.mp3'},
+  audioEl(){if(!this.el){this.el=new Audio();this.el.preload='auto';this.el.setAttribute('playsinline','')}return this.el},
+  unlockAudio(){if(!window.DARB_AUDIO||this._aun)return;this._aun=true;try{const a=this.audioEl();a.muted=true;a.src='data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';const p=a.play();if(p)p.then(()=>{a.pause();a.muted=false}).catch(()=>{a.muted=false})}catch(e){}},
+  playFile(url,opt){return new Promise((res,rej)=>{const a=this.audioEl();a.muted=false;
+    a.onended=()=>res();a.onerror=()=>rej(Object.assign(new Error('missing'),{name:'Missing'}));
+    const r=opt.slow?0.7:(S.set.rate==='s'?0.85:1);a.defaultPlaybackRate=r;a.src=url;a.playbackRate=r;try{a.preservesPitch=true;a.webkitPreservesPitch=true}catch(e){}
+    const p=a.play();if(p)p.catch(rej)})},
   say(text,opt={}){
+    if(!window.DARB_AUDIO)return this.speechSay(text,opt);
+    this.stopSpeech();
+    const urls=[this.aurl(text,opt.voice===1?1:0)];if(opt.voice===1)urls.push(this.aurl(text,0));
+    return new Promise(async res=>{
+      if(this._res)this._res();this._res=res;const done=()=>{if(this._res===res)this._res=null;res()};
+      for(const u of urls){
+        try{await this.playFile(u,opt);done();return}
+        catch(e){
+          if(e&&e.name==='AbortError'){res();return}
+          if(e&&e.name==='NotAllowedError'){if(!this.warned){this.warned=true;toast('اضغط زر الصوت 🔊 مرة وحدة عشان يشتغل الصوت')}done();return}
+        }
+      }
+      if(this._res!==res){res();return}
+      this._res=null;this.speechSay(text,opt).then(res)})},
+  stopSpeech(){try{if(window.speechSynthesis&&(speechSynthesis.speaking||speechSynthesis.pending))speechSynthesis.cancel()}catch(e){}},
+  speechSay(text,opt={}){
     if(!('speechSynthesis' in window)){toast('المتصفح ما يدعم النطق الصوتي');return Promise.resolve()}
     this.unlocked=true;
     return new Promise(res=>{
       // إذا فيه كلام شغّال نوقفه وننتظر شوي، لأن بعض المتصفحات تبلع الجملة الجديدة إذا جات مباشرة بعد الإيقاف
       if(speechSynthesis.speaking||speechSynthesis.pending){speechSynthesis.cancel();setTimeout(()=>this._speak(text,opt,res),120)}
       else this._speak(text,opt,res)})},
-  stop(){try{if(speechSynthesis.speaking||speechSynthesis.pending)speechSynthesis.cancel()}catch(e){}}
+  stop(){try{if(this.el){this.el.pause()}}catch(e){}if(this._res){const r=this._res;this._res=null;r()}this.stopSpeech()}
 };
 if('speechSynthesis' in window){TTS.load();speechSynthesis.onvoiceschanged=()=>TTS.load();
   ['pointerdown','touchend','keydown'].forEach(ev=>document.addEventListener(ev,()=>TTS.unlock(),{capture:true,passive:true}))}
+['pointerdown','touchend','keydown'].forEach(ev=>document.addEventListener(ev,()=>TTS.unlockAudio(),{capture:true,passive:true}));
 const speakText=s=>s.replace(/^(A|B|Doctor|Patient):\s*/,'');
 document.addEventListener('click',e=>{const b=e.target.closest('[data-say]');if(b){e.stopPropagation();TTS.say(b.dataset.say,{slow:b.dataset.slow==='1'})}},true);
 
